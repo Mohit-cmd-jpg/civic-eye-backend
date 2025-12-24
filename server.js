@@ -47,6 +47,24 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+// ---------------- Helper: Call AI Service with Retry ----------------
+async function callAIService(payload, retries = 1) {
+  try {
+    return await axios.post(
+      "https://civic-eye-ai-service.onrender.com/analyze",
+      payload,
+      { timeout: 20000 } // 20 seconds
+    );
+  } catch (error) {
+    if (retries > 0 && error.response && error.response.status === 429) {
+      console.log("AI service rate-limited, retrying...");
+      await new Promise((res) => setTimeout(res, 3000)); // wait 3 sec
+      return callAIService(payload, retries - 1);
+    }
+    throw error;
+  }
+}
+
 // ---------------- Routes ----------------
 
 // Health check
@@ -96,13 +114,10 @@ app.post("/upload", upload.single("image"), async (req, res) => {
   }
 
   try {
-    const aiResponse = await axios.post(
-      "https://civic-eye-ai-service.onrender.com/analyze",
-      {
-        filename: req.file.filename,
-        issue_type: issueType
-      }
-    );
+    const aiResponse = await callAIService({
+      filename: req.file.filename,
+      issue_type: issueType
+    });
 
     const aiData = aiResponse.data;
 
@@ -122,10 +137,9 @@ app.post("/upload", upload.single("image"), async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
+    console.error(error.message);
     res.status(500).json({
-      message: "Error processing report",
-      error: error.message
+      message: "AI service temporarily unavailable. Please retry."
     });
   }
 });
