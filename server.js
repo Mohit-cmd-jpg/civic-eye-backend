@@ -11,11 +11,11 @@ const Report = require("./models/Report");
 
 const app = express();
 
-// Middleware
+// ---------------- Middleware ----------------
 app.use(cors());
 app.use(express.json());
 
-// ---------- MongoDB Atlas Connection ----------
+// ---------------- MongoDB Atlas ----------------
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(() => {
@@ -25,7 +25,7 @@ mongoose
     console.error("MongoDB Atlas connection error:", err);
   });
 
-// ---------- Multer Configuration ----------
+// ---------------- Multer (Image Upload) ----------------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "uploads/");
@@ -38,12 +38,14 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// ---------- Routes ----------
+// ---------------- Routes ----------------
 
+// Health check
 app.get("/", (req, res) => {
   res.send("Civic-Eye Backend is running");
 });
 
+// Fetch all reports (Moderation Dashboard)
 app.get("/reports", async (req, res) => {
   try {
     const reports = await Report.find().sort({ created_at: -1 });
@@ -53,6 +55,7 @@ app.get("/reports", async (req, res) => {
   }
 });
 
+// Update report status
 app.put("/reports/:id/status", async (req, res) => {
   const { status } = req.body;
 
@@ -73,6 +76,7 @@ app.put("/reports/:id/status", async (req, res) => {
   }
 });
 
+// Upload image → AI Service → Save to DB
 app.post("/upload", upload.single("image"), async (req, res) => {
   const issueType = req.body.issue_type;
 
@@ -83,13 +87,18 @@ app.post("/upload", upload.single("image"), async (req, res) => {
   }
 
   try {
-    const aiResponse = await axios.post("http://localhost:7000/analyze", {
-      filename: req.file.filename,
-      issue_type: issueType
-    });
+    // 🔥 CALL DEPLOYED AI SERVICE (RENDER)
+    const aiResponse = await axios.post(
+      "https://civic-eye-ai-service.onrender.com/analyze",
+      {
+        filename: req.file.filename,
+        issue_type: issueType
+      }
+    );
 
     const aiData = aiResponse.data;
 
+    // Save report to MongoDB Atlas
     const report = new Report({
       image_filename: aiData.filename,
       issue_type: aiData.issue_type,
@@ -113,7 +122,7 @@ app.post("/upload", upload.single("image"), async (req, res) => {
   }
 });
 
-// ---------- Start Server ----------
+// ---------------- Start Server ----------------
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
