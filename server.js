@@ -6,6 +6,7 @@ const multer = require("multer");
 const path = require("path");
 const axios = require("axios");
 const mongoose = require("mongoose");
+const fs = require("fs");
 
 const Report = require("./models/Report");
 
@@ -14,6 +15,14 @@ const app = express();
 // ---------------- Middleware ----------------
 app.use(cors());
 app.use(express.json());
+
+// ---------------- Ensure uploads folder exists ----------------
+const uploadDir = path.join(__dirname, "uploads");
+
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+  console.log("Created uploads directory");
+}
 
 // ---------------- MongoDB Atlas ----------------
 mongoose
@@ -28,7 +37,7 @@ mongoose
 // ---------------- Multer (Image Upload) ----------------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "uploads/");
+    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueName = Date.now() + path.extname(file.originalname);
@@ -45,7 +54,7 @@ app.get("/", (req, res) => {
   res.send("Civic-Eye Backend is running");
 });
 
-// Fetch all reports (Moderation Dashboard)
+// Fetch all reports
 app.get("/reports", async (req, res) => {
   try {
     const reports = await Report.find().sort({ created_at: -1 });
@@ -76,7 +85,7 @@ app.put("/reports/:id/status", async (req, res) => {
   }
 });
 
-// Upload image → AI Service → Save to DB
+// Upload image → AI Service → Save
 app.post("/upload", upload.single("image"), async (req, res) => {
   const issueType = req.body.issue_type;
 
@@ -87,7 +96,6 @@ app.post("/upload", upload.single("image"), async (req, res) => {
   }
 
   try {
-    // 🔥 CALL DEPLOYED AI SERVICE (RENDER)
     const aiResponse = await axios.post(
       "https://civic-eye-ai-service.onrender.com/analyze",
       {
@@ -98,7 +106,6 @@ app.post("/upload", upload.single("image"), async (req, res) => {
 
     const aiData = aiResponse.data;
 
-    // Save report to MongoDB Atlas
     const report = new Report({
       image_filename: aiData.filename,
       issue_type: aiData.issue_type,
@@ -115,6 +122,7 @@ app.post("/upload", upload.single("image"), async (req, res) => {
     });
 
   } catch (error) {
+    console.error(error);
     res.status(500).json({
       message: "Error processing report",
       error: error.message
