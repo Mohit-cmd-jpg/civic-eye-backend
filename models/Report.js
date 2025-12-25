@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const reportSchema = new mongoose.Schema({
+const ReportSchema = new mongoose.Schema({
   image_filename: {
     type: String,
     required: true
@@ -8,6 +8,10 @@ const reportSchema = new mongoose.Schema({
   issue_type: {
     type: String,
     required: true
+  },
+  description: {
+    type: String,
+    default: ""
   },
   trust_score: {
     type: Number,
@@ -31,4 +35,4 @@ const reportSchema = new mongoose.Schema({
   }
 });
 
-module.exports = mongoose.model("Report", reportSchema);
+module.exports = mongoose.model("Report", ReportSchema);
