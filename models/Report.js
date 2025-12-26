@@ -13,17 +13,29 @@ const ReportSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  pincode: {
+    type: String,
+    default: ""
+  },
+  address: {
+    type: String,
+    default: ""
+  },
   trust_score: {
     type: Number,
-    required: true
+    default: null
   },
   base_severity: {
     type: Number,
-    required: true
+    default: null
   },
   priority: {
     type: String,
-    required: true
+    default: "UNKNOWN"
+  },
+  ai_status: {
+    type: String,
+    default: "PENDING" // PENDING | COMPLETED | FAILED
   },
   status: {
     type: String,
