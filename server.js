@@ -2,7 +2,6 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const multer = require("multer");
-const axios = require("axios");
 const cors = require("cors");
 
 const Report = require("./models/Report");
@@ -19,52 +18,36 @@ mongoose
   .then(() => console.log("MongoDB Atlas connected"))
   .catch((err) => console.error("MongoDB connection error:", err));
 
-/* ------------------ UPLOAD & PROCESS REPORT ------------------ */
+/* ------------------ UPLOAD REPORT (NO AI CALL) ------------------ */
 app.post("/upload", upload.single("image"), async (req, res) => {
   try {
-    const { issue_type, description } = req.body;
+    const { issue_type, description, pincode, address } = req.body;
 
     if (!req.file) {
       return res.status(400).json({ message: "Image file is required" });
     }
 
-    // Call AI service
-    const aiResponse = await axios.post(
-      `${process.env.AI_SERVICE_URL}/analyze`,
-      {
-        image_path: req.file.path,
-        issue_type
-      },
-      { timeout: 15000 }
-    );
-
-    const {
-      trust_score,
-      base_severity,
-      priority
-    } = aiResponse.data;
-
     const report = new Report({
       image_filename: req.file.filename,
       issue_type,
       description: description || "",
-      trust_score,
-      base_severity,
-      priority,
+      pincode: pincode || "",
+      address: address || "",
+      ai_status: "PENDING", // AI will run later
+      priority: "UNKNOWN",
       status: "Pending"
     });
 
     await report.save();
 
     res.json({
-      message: "Image uploaded and analyzed",
-      report_id: report._id
+      message: "Report submitted successfully",
+      report_id: report._id,
+      ai_status: "PENDING"
     });
   } catch (error) {
     console.error("Upload error:", error.message);
-    res
-      .status(500)
-      .json({ message: "AI processing failed" });
+    res.status(500).json({ message: "Failed to submit report" });
   }
 });
 
@@ -77,7 +60,6 @@ app.get("/reports", async (req, res) => {
 /* ------------------ UPDATE STATUS ------------------ */
 app.put("/reports/:id/status", async (req, res) => {
   const { status } = req.body;
-
   await Report.findByIdAndUpdate(req.params.id, { status });
   res.json({ message: "Status updated successfully" });
 });
