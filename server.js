@@ -13,19 +13,22 @@ app.use(express.json());
 
 const upload = multer({ dest: "uploads/" });
 
+const AI_MODE = process.env.AI_MODE || "LOCAL";
+const LOCAL_AI_URL = "http://127.0.0.1:7000";
+
 /* ------------------ DATABASE CONNECTION ------------------ */
 mongoose
   .connect(process.env.MONGODB_URI)
-  .then(() => console.log("MongoDB Atlas connected"))
-  .catch((err) => console.error("MongoDB connection error:", err));
+  .then(() => console.log("MongoDB connected"))
+  .catch(err => console.error("MongoDB error:", err));
 
-/* ------------------ UPLOAD REPORT (NO AI CALL) ------------------ */
+/* ------------------ UPLOAD REPORT ------------------ */
 app.post("/upload", upload.single("image"), async (req, res) => {
   try {
     const { issue_type, description, pincode, address } = req.body;
 
     if (!req.file) {
-      return res.status(400).json({ message: "Image file is required" });
+      return res.status(400).json({ message: "Image required" });
     }
 
     const report = new Report({
@@ -43,60 +46,42 @@ app.post("/upload", upload.single("image"), async (req, res) => {
 
     res.json({
       message: "Report submitted successfully",
-      report_id: report._id,
-      ai_status: "PENDING"
+      report_id: report._id
     });
-  } catch (error) {
-    console.error("Upload error:", error.message);
-    res.status(500).json({ message: "Failed to submit report" });
+  } catch (err) {
+    res.status(500).json({ message: "Upload failed" });
   }
 });
 
-/* ------------------ RUN AI VERIFICATION (MANUAL) ------------------ */
+/* ------------------ RUN AI (LOCAL ONLY) ------------------ */
 app.post("/reports/:id/run-ai", async (req, res) => {
+  const report = await Report.findById(req.params.id);
+  if (!report) return res.status(404).json({ message: "Not found" });
+
+  if (AI_MODE !== "LOCAL") {
+    report.ai_status = "FAILED";
+    await report.save();
+    return res.json({ message: "Cloud AI disabled" });
+  }
+
   try {
-    const report = await Report.findById(req.params.id);
+    const aiRes = await axios.post(`${LOCAL_AI_URL}/analyze`, {
+      image_path: report.image_filename,
+      issue_type: report.issue_type
+    });
 
-    if (!report) {
-      return res.status(404).json({ message: "Report not found" });
-    }
-
-    // Call AI service
-    const aiResponse = await axios.post(
-      `${process.env.AI_SERVICE_URL}/analyze`,
-      {
-        image_path: report.image_filename,
-        issue_type: report.issue_type
-      },
-      { timeout: 20000 }
-    );
-
-    const {
-      trust_score,
-      base_severity,
-      priority
-    } = aiResponse.data;
-
-    report.trust_score = trust_score;
-    report.base_severity = base_severity;
-    report.priority = priority;
+    report.trust_score = aiRes.data.trust_score;
+    report.priority = aiRes.data.priority;
+    report.base_severity = aiRes.data.base_severity;
     report.ai_status = "COMPLETED";
 
     await report.save();
 
-    res.json({
-      message: "AI verification completed",
-      trust_score,
-      priority
-    });
-  } catch (error) {
-    console.error("AI run error:", error.message);
-
-    await Report.findByIdAndUpdate(req.params.id, {
-      ai_status: "FAILED"
-    });
-
-    res.status(500).json({ message: "AI verification failed" });
+    res.json({ message: "AI completed locally" });
+  } catch (e) {
+    report.ai_status = "FAILED";
+    await report.save();
+    res.status(500).json({ message: "Local AI failed" });
   }
 });
 
@@ -108,13 +93,10 @@ app.get("/reports", async (req, res) => {
 
 /* ------------------ UPDATE STATUS ------------------ */
 app.put("/reports/:id/status", async (req, res) => {
-  const { status } = req.body;
-  await Report.findByIdAndUpdate(req.params.id, { status });
-  res.json({ message: "Status updated successfully" });
+  await Report.findByIdAndUpdate(req.params.id, { status: req.body.status });
+  res.json({ message: "Status updated" });
 });
 
 /* ------------------ START SERVER ------------------ */
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () =>
-  console.log(`Server running on port ${PORT}`)
-);
+app.listen(PORT, () => console.log("Backend running on", PORT));
