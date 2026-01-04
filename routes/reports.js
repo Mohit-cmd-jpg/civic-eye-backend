@@ -383,5 +383,39 @@ router.put("/:id/status", authenticate, async (req, res) => {
   }
 });
 
+// Protected: Delete report
+router.delete("/:id", authenticate, async (req, res) => {
+  try {
+    const report = await Report.findById(req.params.id);
+    if (!report) {
+      return res.status(404).json({ message: "Report not found" });
+    }
+
+    // Check pincode access
+    if (req.authority.role !== "admin" && 
+        req.authority.assigned_pincodes.length > 0 &&
+        !req.authority.assigned_pincodes.includes(report.pincode)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    // Delete image file
+    const imagePath = path.join(uploadDir, report.image_filename);
+    if (fs.existsSync(imagePath)) {
+      try {
+        fs.unlinkSync(imagePath);
+      } catch (err) {
+        console.error("Failed to delete image file:", err);
+      }
+    }
+
+    await Report.findByIdAndDelete(req.params.id);
+
+    res.json({ message: "Report deleted successfully" });
+  } catch (error) {
+    console.error("Delete report error:", error);
+    res.status(500).json({ message: "Failed to delete report" });
+  }
+});
+
 module.exports = router;
 
