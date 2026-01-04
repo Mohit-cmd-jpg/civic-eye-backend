@@ -1,21 +1,27 @@
 {
   "name": "civic-eye-backend",
-  "version": "1.0.0",
-  "description": "Backend server for Civic-Eye AI verified citizen journalism system",
+  "version": "2.0.0",
+  "description": "Production-ready backend for Civic-Eye platform",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "engines": {
     "node": "18.x"
   },
   "dependencies": {
-    "axios": "^1.6.7",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.3.2",
-    "multer": "^2.0.0"
+    "multer": "^2.0.0",
+    "ngeohash": "^0.6.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
   }
 }

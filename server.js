@@ -1,102 +1,100 @@
 require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
-const multer = require("multer");
-const axios = require("axios");
 const cors = require("cors");
+const path = require("path");
+const fs = require("fs");
 
-const Report = require("./models/Report");
+// Import routes
+const reportsRouter = require("./routes/reports");
+const authRouter = require("./routes/auth");
 
 const app = express();
-app.use(cors());
+
+// Middleware
+app.use(cors({
+  origin: process.env.FRONTEND_URL || "http://localhost:3000",
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-const upload = multer({ dest: "uploads/" });
+// Serve uploaded images
+const uploadsDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use("/uploads", express.static(uploadsDir));
 
-const AI_MODE = process.env.AI_MODE || "LOCAL";
-const LOCAL_AI_URL = "http://127.0.0.1:7000";
-
-/* ------------------ DATABASE CONNECTION ------------------ */
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch(err => console.error("MongoDB error:", err));
-
-/* ------------------ UPLOAD REPORT ------------------ */
-app.post("/upload", upload.single("image"), async (req, res) => {
-  try {
-    const { issue_type, description, pincode, address } = req.body;
-
-    if (!req.file) {
-      return res.status(400).json({ message: "Image required" });
-    }
-
-    const report = new Report({
-      image_filename: req.file.filename,
-      issue_type,
-      description: description || "",
-      pincode: pincode || "",
-      address: address || "",
-      ai_status: "PENDING",
-      priority: "UNKNOWN",
-      status: "Pending"
-    });
-
-    await report.save();
-
-    res.json({
-      message: "Report submitted successfully",
-      report_id: report._id
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Upload failed" });
-  }
+// Health check
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-/* ------------------ RUN AI (LOCAL ONLY) ------------------ */
-app.post("/reports/:id/run-ai", async (req, res) => {
-  const report = await Report.findById(req.params.id);
-  if (!report) return res.status(404).json({ message: "Not found" });
-
-  if (AI_MODE !== "LOCAL") {
-    report.ai_status = "FAILED";
-    await report.save();
-    return res.json({ message: "Cloud AI disabled" });
-  }
-
-  try {
-    const aiRes = await axios.post(`${LOCAL_AI_URL}/analyze`, {
-      image_path: report.image_filename,
-      issue_type: report.issue_type
-    });
-
-    report.trust_score = aiRes.data.trust_score;
-    report.priority = aiRes.data.priority;
-    report.base_severity = aiRes.data.base_severity;
-    report.ai_status = "COMPLETED";
-
-    await report.save();
-
-    res.json({ message: "AI completed locally" });
-  } catch (e) {
-    report.ai_status = "FAILED";
-    await report.save();
-    res.status(500).json({ message: "Local AI failed" });
-  }
+// Debug: Log all incoming requests (before routes)
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
 });
 
-/* ------------------ FETCH REPORTS ------------------ */
-app.get("/reports", async (req, res) => {
-  const reports = await Report.find().sort({ created_at: -1 });
-  res.json(reports);
+// API Routes - MUST be before 404 handler
+app.use("/api/reports", reportsRouter);
+app.use("/api/auth", authRouter);
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Error:", err);
+  res.status(err.status || 500).json({
+    message: err.message || "Internal server error",
+    error: process.env.NODE_ENV === "development" ? err.stack : undefined
+  });
 });
 
-/* ------------------ UPDATE STATUS ------------------ */
-app.put("/reports/:id/status", async (req, res) => {
-  await Report.findByIdAndUpdate(req.params.id, { status: req.body.status });
-  res.json({ message: "Status updated" });
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ message: "Route not found" });
 });
 
-/* ------------------ START SERVER ------------------ */
+// Database connection
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/civic-eye";
+
+mongoose.connect(MONGODB_URI, {
+  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+})
+  .then(() => {
+    console.log("✅ MongoDB connected");
+    
+    // Create default admin if doesn't exist
+    const Authority = require("./models/Authority");
+    Authority.findOne({ email: "admin@civiceye.com" })
+      .then(async (admin) => {
+        if (!admin) {
+          const defaultAdmin = new Authority({
+            email: "admin@civiceye.com",
+            password: "admin123", // Change in production!
+            name: "System Admin",
+            role: "admin",
+            assigned_pincodes: [] // Admin sees all
+          });
+          await defaultAdmin.save();
+          console.log("✅ Default admin created (admin@civiceye.com / admin123)");
+        }
+      })
+      .catch(err => console.error("Admin creation error:", err));
+  })
+  .catch(err => {
+    console.error("❌ MongoDB connection error:", err.message);
+    console.error("⚠️  Backend will continue but database operations will fail");
+    console.error("💡 Make sure MongoDB is running or set MONGODB_URI in .env");
+    // Don't exit - allow server to start even without DB for testing
+  });
+
+// Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log("Backend running on", PORT));
+app.listen(PORT, () => {
+  console.log(`🚀 Backend server running on port ${PORT}`);
+  console.log(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(`🤖 AI Service: ${process.env.AI_SERVICE_URL || "http://localhost:7000"}`);
+});
