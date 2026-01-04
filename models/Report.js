@@ -72,9 +72,23 @@ const ReportSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
     index: true
+  },
+  user_date: {
+    type: String,
+    required: false
+  },
+  user_time: {
+    type: String,
+    required: false
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+ReportSchema.virtual('image_url').get(function() {
+  return this.image_filename ? `/uploads/${this.image_filename}` : null;
 });
 
 // Generate complaintId before saving

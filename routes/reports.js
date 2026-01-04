@@ -136,15 +136,52 @@ router.get("/:complaintId", async (req, res) => {
       description: report.description,
       pincode: report.pincode,
       address: report.address,
+      latitude: report.latitude,
+      longitude: report.longitude,
       status: report.status,
       ai_status: report.ai_status,
       trust_score: report.trust_score,
       priority: report.priority,
-      created_at: report.created_at
+      created_at: report.created_at,
+      image_url: report.image_url,
+      user_date: report.user_date,
+      user_time: report.user_time
     });
   } catch (error) {
     console.error("Track complaint error:", error);
     res.status(500).json({ message: "Failed to fetch complaint" });
+  }
+});
+
+// Protected: Update report status
+router.put("/:id/status", authenticate, authorizePincode, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const { id } = req.params;
+
+    if (!["Pending", "In Progress", "Resolved"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+
+    const report = await Report.findById(id);
+    if (!report) {
+      return res.status(404).json({ message: "Report not found" });
+    }
+
+    // Check authorization (if authority is assigned to this pincode)
+    if (req.authority.role !== "admin" && 
+        req.authority.assigned_pincodes.length > 0 && 
+        !req.authority.assigned_pincodes.includes(report.pincode)) {
+      return res.status(403).json({ message: "Unauthorized to update this report" });
+    }
+
+    report.status = status;
+    await report.save();
+
+    res.json({ message: "Status updated successfully", status: report.status });
+  } catch (error) {
+    console.error("Update status error:", error);
+    res.status(500).json({ message: "Failed to update status" });
   }
 });
 
@@ -198,8 +235,14 @@ router.get("/", authenticate, authorizePincode, async (req, res) => {
 
 // Protected: Trigger AI verification
 router.post("/:id/verify", authenticate, async (req, res) => {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:200',message:'Verify endpoint entry',data:{reportId:req.params.id,hasAuth:!!req.authority},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   try {
     const report = await Report.findById(req.params.id);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:203',message:'Report fetched',data:{reportFound:!!report,reportId:report?._id?.toString(),imageFilename:report?.image_filename},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     
     if (!report) {
       return res.status(404).json({ message: "Report not found" });
@@ -213,6 +256,9 @@ router.post("/:id/verify", authenticate, async (req, res) => {
     }
 
     const imagePath = path.join(uploadDir, report.image_filename);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:215',message:'Image path check',data:{imagePath,fileExists:fs.existsSync(imagePath)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     
     if (!fs.existsSync(imagePath)) {
       report.ai_status = "FAILED";
@@ -221,22 +267,44 @@ router.post("/:id/verify", authenticate, async (req, res) => {
     }
 
     const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:7000";
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:223',message:'Before AI service call',data:{aiServiceUrl,issueType:report.issue_type,imageSize:fs.statSync(imagePath).size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     
     try {
       const imageBuffer = fs.readFileSync(imagePath);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:226',message:'Image buffer read',data:{bufferSize:imageBuffer.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       
-      const aiResponse = await fetch(`${aiServiceUrl}/analyze?issue_type=${encodeURIComponent(report.issue_type)}`, {
+      const aiUrl = `${aiServiceUrl}/analyze?issue_type=${encodeURIComponent(report.issue_type)}`;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:228',message:'Before fetch to AI',data:{aiUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      
+      const aiResponse = await fetch(aiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/octet-stream" },
         body: imageBuffer,
         signal: AbortSignal.timeout(30000) // 30s timeout
       });
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:235',message:'AI response received',data:{status:aiResponse.status,statusText:aiResponse.statusText,ok:aiResponse.ok},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+
       if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:238',message:'AI response not ok',data:{status:aiResponse.status,errorText:errorText.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         throw new Error(`AI service returned ${aiResponse.status}`);
       }
 
       const aiData = await aiResponse.json();
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:243',message:'AI data parsed',data:{hasTrustScore:aiData.trust_score!==undefined,trustScore:aiData.trust_score,hasPriority:aiData.priority!==undefined,priority:aiData.priority},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
 
       // Calculate severity and priority
       const result = calculateSeverityAndPriority({
@@ -259,6 +327,9 @@ router.post("/:id/verify", authenticate, async (req, res) => {
         explanation: aiData.explanation || {}
       });
     } catch (aiError) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:261',message:'AI error caught',data:{errorMessage:aiError.message,errorName:aiError.name,errorCode:aiError.code},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       console.error("AI verification error:", aiError);
       report.ai_status = "FAILED";
       await report.save();
@@ -269,6 +340,9 @@ router.post("/:id/verify", authenticate, async (req, res) => {
       });
     }
   } catch (error) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:272',message:'General error caught',data:{errorMessage:error.message,errorName:error.name},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
     console.error("Verify report error:", error);
     res.status(500).json({ message: "Failed to verify report" });
   }

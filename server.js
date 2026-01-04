@@ -33,11 +33,11 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// Debug: Log all incoming requests (before routes)
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  next();
-});
+// Debug: Log all incoming requests (before routes) - MOVED UP
+// app.use((req, res, next) => {
+//   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+//   next();
+// });
 
 // API Routes - MUST be before 404 handler
 app.use("/api/reports", reportsRouter);

@@ -16,7 +16,7 @@ function calculateSeverityAndPriority({ trust_score, issue_type }) {
   };
 
   // Start with base severity
-  let base_severity = severityMap[issue_type] || 40;
+  let base_severity = severityMap[issue_type ? issue_type.toLowerCase() : "other"] || 40;
 
   // Adjust based on trust score (explainable logic)
   // Lower trust = lower severity (unverified reports get deprioritized)
