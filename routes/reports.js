@@ -3,7 +3,6 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const Report = require("../models/Report");
-const { calculateSeverityAndPriority } = require("../severity");
 const ngeohash = require("ngeohash");
 const { authenticate, authorizePincode } = require("../middleware/auth");
 
@@ -302,21 +301,14 @@ router.post("/:id/verify", authenticate, async (req, res) => {
       }
 
       const aiData = await aiResponse.json();
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/a9e3afc6-a17b-425e-a047-ac848866ab88',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'reports.js:243',message:'AI data parsed',data:{hasTrustScore:aiData.trust_score!==undefined,trustScore:aiData.trust_score,hasPriority:aiData.priority!==undefined,priority:aiData.priority},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
 
-      // Calculate severity and priority
-      const result = calculateSeverityAndPriority({
-        trust_score: aiData.trust_score,
-        issue_type: report.issue_type
-      });
-
-      // Update report
+      // Update report with AI data
+      // Use values directly from AI service for consistency
       report.trust_score = aiData.trust_score;
-      report.base_severity = result.base_severity;
-      report.priority = result.priority;
+      report.base_severity = aiData.base_severity;
+      report.priority = aiData.priority;
       report.ai_status = "COMPLETED";
+      
       await report.save();
 
       res.json({
